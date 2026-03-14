@@ -118,6 +118,8 @@ def find_deals(active_listings, market_prices, threshold_percent=None):
                 "discount_percent": round(discount, 1),
                 "savings": round(market_price - listing_price, 2),
                 "url": listing["url"],
+                "source": listing.get("source", "ebay"),
+                "location": listing.get("location", ""),
                 "num_sold_compared": market_info["num_sales"],
             })
 

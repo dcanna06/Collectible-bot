@@ -3,6 +3,21 @@
 # eBay domain for Australia
 EBAY_AU_BASE_URL = "https://www.ebay.com.au"
 
+# Facebook Marketplace
+FB_MARKETPLACE_BASE_URL = "https://www.facebook.com/marketplace"
+FB_DEFAULT_LOCATION = "sydney"
+FB_SEARCH_LOCATIONS = [
+    "sydney",
+    "melbourne",
+    "brisbane",
+    "perth",
+    "adelaide",
+    "hobart",
+    "canberra",
+    "darwin",
+]
+FB_REQUEST_DELAY = 2.0  # seconds between FB requests (be extra polite)
+
 # Search parameters
 DEFAULT_SEARCH_QUERY = "Pokemon card"
 DEFAULT_MIN_PRICE = 1.0  # AUD - ignore junk listings

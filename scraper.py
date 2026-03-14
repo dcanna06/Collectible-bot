@@ -116,6 +116,7 @@ def _parse_listing(item):
         "shipping": shipping_cost,
         "total_price": round(price + shipping_cost, 2),
         "url": url,
+        "source": "ebay",
     }
 
 
