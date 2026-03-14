@@ -40,3 +40,39 @@ USER_AGENT = (
 
 # Output settings
 MAX_RESULTS_DISPLAY = 50
+
+# ---------------------------------------------------------------------------
+# Email alert settings (for auction monitor)
+# ---------------------------------------------------------------------------
+ALERT_EMAIL_TO = "davecannalonga@gmail.com"
+EMAIL_FROM = "pokemonbot.alerts@gmail.com"  # Sender address (configure with your SMTP)
+
+# SMTP settings — configure these for your email provider
+# Gmail example: host=smtp.gmail.com, port=587, use_tls=True
+# You'll need an App Password if using Gmail with 2FA:
+#   https://support.google.com/accounts/answer/185833
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
+SMTP_USE_TLS = True
+SMTP_USER = "pokemonbot.alerts@gmail.com"  # Your sending email
+SMTP_PASSWORD = ""  # Set via SMTP_PASSWORD env var or paste here (NOT recommended)
+
+# ---------------------------------------------------------------------------
+# Auction monitor settings
+# ---------------------------------------------------------------------------
+# Alert on auctions ending within this many minutes
+MONITOR_ALERT_WINDOW_MINUTES = 60  # 1 hour before auction ends
+
+# How often the monitor re-scans for new auctions (minutes)
+MONITOR_POLL_INTERVAL_MINUTES = 10
+
+
+# ---------------------------------------------------------------------------
+# Load sensitive settings from environment variables (preferred over hardcoding)
+# ---------------------------------------------------------------------------
+import os as _os
+
+SMTP_PASSWORD = _os.environ.get("SMTP_PASSWORD", SMTP_PASSWORD)
+SMTP_USER = _os.environ.get("SMTP_USER", SMTP_USER)
+EMAIL_FROM = _os.environ.get("EMAIL_FROM", EMAIL_FROM)
+ALERT_EMAIL_TO = _os.environ.get("ALERT_EMAIL_TO", ALERT_EMAIL_TO)

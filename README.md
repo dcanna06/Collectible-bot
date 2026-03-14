@@ -1,12 +1,18 @@
 # Pokemon Card Price Bot
 
-Finds Pokemon trading card listings on eBay Australia and Facebook Marketplace that are priced below recent sold prices — i.e. cards selling below market value.
+Finds Pokemon trading card listings on eBay Australia and Facebook Marketplace priced below recent sold prices, and monitors eBay auctions in real time — emailing you when a deal is about to end.
 
 ## How It Works
 
-1. **Scrapes sold prices** — Fetches recently completed/sold listings on eBay AU to establish a fair market price.
-2. **Scrapes active listings** — Fetches current Buy It Now listings from eBay AU and/or Facebook Marketplace across Australian cities.
-3. **Compares prices** — Groups cards by normalized title, computes average sold price, and flags active listings that are significantly cheaper than the market average.
+### Search Mode
+1. **Scrapes sold prices** — Fetches recently sold listings on eBay AU to establish fair market value.
+2. **Scrapes active listings** — Fetches current Buy It Now listings from eBay AU and/or Facebook Marketplace.
+3. **Compares prices** — Groups cards by normalized title, computes average sold price, and flags listings significantly cheaper than market.
+
+### Monitor Mode (Real-Time Auction Alerts)
+1. **Continuously scans** eBay AU auctions sorted by ending soonest.
+2. **Checks current bid** against the average sold price from recent sales history.
+3. **Emails you** when an auction is within 1 hour of ending and the current bid is below market value — includes the listing URL and previous sale prices.
 
 ## Setup
 
@@ -14,54 +20,83 @@ Finds Pokemon trading card listings on eBay Australia and Facebook Marketplace t
 pip install -r requirements.txt
 ```
 
-## Usage
+### Email Configuration (for Monitor Mode)
+
+Set your SMTP credentials so the bot can send alert emails. The easiest way is via environment variables:
 
 ```bash
-# Default: search both eBay AU and Facebook Marketplace
-python bot.py
+export SMTP_USER="your-email@gmail.com"
+export SMTP_PASSWORD="your-app-password"
+export EMAIL_FROM="your-email@gmail.com"
+export ALERT_EMAIL_TO="davecannalonga@gmail.com"
+```
+
+For Gmail, you need an [App Password](https://support.google.com/accounts/answer/185833) (not your regular password).
+
+Alternatively, edit `config.py` directly.
+
+## Usage
+
+### Search for Deals (one-shot)
+
+```bash
+# Search both eBay AU and Facebook Marketplace
+python bot.py search
 
 # Search for a specific card
-python bot.py "Charizard VMAX"
+python bot.py search "Charizard VMAX"
 
-# Search only eBay
-python bot.py "Pikachu" --source ebay
+# eBay only / Facebook only
+python bot.py search "Pikachu" --source ebay
+python bot.py search "Pikachu" --source facebook
 
-# Search only Facebook Marketplace
-python bot.py "Pikachu" --source facebook
+# Custom threshold and price range
+python bot.py search "Mewtwo GX" --threshold 30 --min-price 5 --max-price 100
+```
 
-# Only show listings 30%+ below market value
-python bot.py "Pikachu" --threshold 30
+### Monitor Auctions (real-time with email alerts)
 
-# Filter by price range
-python bot.py "Mewtwo GX" --min-price 5 --max-price 100
+```bash
+# Monitor all Pokemon card auctions (default settings)
+python bot.py monitor
 
-# Fetch more eBay pages for deeper search
-python bot.py "Umbreon" --sold-pages 4 --listing-pages 5
+# Monitor a specific card
+python bot.py monitor "Charizard VMAX"
 
-# Search specific Facebook Marketplace locations
-python bot.py "Charizard" --source facebook --fb-locations sydney melbourne
+# Alert when auctions are 30 min from ending, check every 5 min
+python bot.py monitor --alert-window 30 --interval 5
+
+# Only alert on 30%+ discounts
+python bot.py monitor "Pikachu" --threshold 30
+
+# Override the alert email
+python bot.py monitor --email someone@example.com
 ```
 
 ## Configuration
 
 Edit `config.py` to change defaults:
 
-- `DEAL_THRESHOLD_PERCENT` — Minimum discount to qualify as a deal (default: 20%)
-- `SOLD_LISTINGS_SAMPLE_SIZE` — Number of recent sales to average (default: 10)
-- `DEFAULT_MIN_PRICE` / `DEFAULT_MAX_PRICE` — Price range filters
-- `REQUEST_DELAY` — Delay between eBay requests
-- `FB_REQUEST_DELAY` — Delay between Facebook requests
-- `FB_SEARCH_LOCATIONS` — List of Australian cities to search on Facebook Marketplace
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `DEAL_THRESHOLD_PERCENT` | 20% | Minimum discount to qualify as a deal |
+| `SOLD_LISTINGS_SAMPLE_SIZE` | 10 | Number of recent sales to average |
+| `DEFAULT_MIN_PRICE` / `DEFAULT_MAX_PRICE` | $1 / $5000 | Price range filters |
+| `MONITOR_ALERT_WINDOW_MINUTES` | 60 | Alert when auction ends within N minutes |
+| `MONITOR_POLL_INTERVAL_MINUTES` | 10 | How often the monitor re-scans |
+| `ALERT_EMAIL_TO` | davecannalonga@gmail.com | Email to receive alerts |
+| `FB_SEARCH_LOCATIONS` | 8 AU cities | Cities to search on Facebook Marketplace |
 
-## Output
+## Email Alert Contents
 
-The bot displays a table of deals sorted by discount percentage, including:
-- Source platform (eBay or FB)
-- Card name
-- Current listing price (eBay includes shipping; FB is typically local pickup)
-- Average market price (from eBay AU sold data)
+Each alert email includes:
+- Card name and current bid price
+- Shipping cost and total price
+- Number of bids and time remaining
+- Average market price from recent sold data
 - Discount percentage and dollar savings
-- Direct links to each listing, grouped by platform
+- List of the last 10 individual sold prices
+- Direct link to the eBay auction
 
 ## Disclaimer
 

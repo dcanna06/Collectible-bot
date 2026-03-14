@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Pokemon Card Price Bot – finds undervalued Pokemon card listings on eBay
-Australia and Facebook Marketplace.
+Australia and Facebook Marketplace, and monitors auctions in real time.
 
 Usage:
-    python bot.py                                # Search eBay + Facebook
-    python bot.py "Charizard VMAX"               # Search for a specific card
-    python bot.py --source ebay                  # eBay only
-    python bot.py --source facebook              # Facebook Marketplace only
-    python bot.py --threshold 30                 # Only show 30%+ below market
-    python bot.py --min-price 5 --max-price 200  # Price range filter
+    python bot.py search                             # Search eBay + Facebook
+    python bot.py search "Charizard VMAX"            # Specific card
+    python bot.py search --source ebay               # eBay only
+    python bot.py monitor                            # Monitor auctions (default query)
+    python bot.py monitor "Charizard"                # Monitor specific card auctions
+    python bot.py monitor --threshold 15 --interval 5
 """
 
 import argparse
@@ -20,94 +20,35 @@ import config
 from scraper import fetch_sold_prices, fetch_active_listings
 from facebook_scraper import fetch_facebook_listings
 from analyzer import compute_market_prices, find_deals
+from auction_monitor import run_monitor
 
 VALID_SOURCES = ("all", "ebay", "facebook")
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description=(
-            "Find Pokemon cards listed below market value on "
-            "eBay Australia and Facebook Marketplace."
-        )
-    )
-    parser.add_argument(
-        "query",
-        nargs="?",
-        default=config.DEFAULT_SEARCH_QUERY,
-        help=f"Search query (default: '{config.DEFAULT_SEARCH_QUERY}')",
-    )
-    parser.add_argument(
-        "--source",
-        choices=VALID_SOURCES,
-        default="all",
-        help="Which marketplace(s) to search: all, ebay, or facebook (default: all)",
-    )
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=config.DEAL_THRESHOLD_PERCENT,
-        help=f"Minimum discount %% to show (default: {config.DEAL_THRESHOLD_PERCENT}%%)",
-    )
-    parser.add_argument(
-        "--min-price",
-        type=float,
-        default=config.DEFAULT_MIN_PRICE,
-        help=f"Minimum listing price in AUD (default: {config.DEFAULT_MIN_PRICE})",
-    )
-    parser.add_argument(
-        "--max-price",
-        type=float,
-        default=config.DEFAULT_MAX_PRICE,
-        help=f"Maximum listing price in AUD (default: {config.DEFAULT_MAX_PRICE})",
-    )
-    parser.add_argument(
-        "--sold-pages",
-        type=int,
-        default=2,
-        help="Number of eBay sold listing pages to fetch (default: 2)",
-    )
-    parser.add_argument(
-        "--listing-pages",
-        type=int,
-        default=3,
-        help="Number of eBay active listing pages to fetch (default: 3)",
-    )
-    parser.add_argument(
-        "--fb-locations",
-        nargs="+",
-        default=None,
-        help=(
-            "Facebook Marketplace locations to search "
-            f"(default: {', '.join(config.FB_SEARCH_LOCATIONS)})"
-        ),
-    )
-    return parser.parse_args()
+# ---------------------------------------------------------------------------
+# search subcommand
+# ---------------------------------------------------------------------------
 
+def cmd_search(args):
+    """Run the one-shot deal finder across eBay/Facebook."""
+    config.DEFAULT_MIN_PRICE = args.min_price
+    config.DEFAULT_MAX_PRICE = args.max_price
 
-def run(query, source, threshold, min_price, max_price,
-        sold_pages, listing_pages, fb_locations):
-    """Run the full pipeline: scrape, analyze, and return deals."""
-
-    # Temporarily override config prices
-    config.DEFAULT_MIN_PRICE = min_price
-    config.DEFAULT_MAX_PRICE = max_price
-
-    search_ebay = source in ("all", "ebay")
-    search_fb = source in ("all", "facebook")
+    search_ebay = args.source in ("all", "ebay")
+    search_fb = args.source in ("all", "facebook")
 
     total_steps = 2 + int(search_ebay) + int(search_fb)
     step = 0
 
-    # Step 1: Fetch sold prices (always needed for market value baseline)
+    # Step 1: Fetch sold prices
     step += 1
-    print(f"\n[{step}/{total_steps}] Fetching recent sold prices for: \"{query}\" ...")
-    sold = fetch_sold_prices(query, max_pages=sold_pages)
+    print(f"\n[{step}/{total_steps}] Fetching recent sold prices for: \"{args.query}\" ...")
+    sold = fetch_sold_prices(args.query, max_pages=args.sold_pages)
     print(f"      Found {len(sold)} sold listings.")
 
     if not sold:
         print("\n  No sold data found. Try a more specific search query.")
-        return []
+        return 1
 
     # Step 2: Compute market prices
     step += 1
@@ -115,39 +56,76 @@ def run(query, source, threshold, min_price, max_price,
     market = compute_market_prices(sold)
     print(f"      Computed prices for {len(market)} unique card groupings.")
 
-    # Step 3+: Fetch active listings from selected sources
+    # Step 3+: Fetch active listings
     all_active = []
 
     if search_ebay:
         step += 1
-        print(f"\n[{step}/{total_steps}] Fetching active eBay AU listings for: \"{query}\" ...")
-        ebay_active = fetch_active_listings(query, max_pages=listing_pages)
+        print(f"\n[{step}/{total_steps}] Fetching active eBay AU listings for: \"{args.query}\" ...")
+        ebay_active = fetch_active_listings(args.query, max_pages=args.listing_pages)
         print(f"      Found {len(ebay_active)} eBay listings.")
         all_active.extend(ebay_active)
 
     if search_fb:
         step += 1
-        print(f"\n[{step}/{total_steps}] Fetching Facebook Marketplace listings for: \"{query}\" ...")
+        print(f"\n[{step}/{total_steps}] Fetching Facebook Marketplace listings for: \"{args.query}\" ...")
         fb_active = fetch_facebook_listings(
-            query,
-            locations=fb_locations,
-            min_price=min_price,
-            max_price=max_price,
+            args.query,
+            locations=args.fb_locations,
+            min_price=args.min_price,
+            max_price=args.max_price,
         )
         print(f"      Found {len(fb_active)} Facebook Marketplace listings.")
         all_active.extend(fb_active)
 
     if not all_active:
         print("\n  No active listings found on any platform.")
-        return []
+        return 1
 
-    # Final: Find deals
     print(f"\n  Analyzing {len(all_active)} total listings for deals "
-          f"(>= {threshold}% below market) ...")
-    deals = find_deals(all_active, market, threshold_percent=threshold)
+          f"(>= {args.threshold}% below market) ...")
+    deals = find_deals(all_active, market, threshold_percent=args.threshold)
 
-    return deals
+    display_deals(deals)
 
+    if deals:
+        print(f"  TIP: eBay prices include shipping. FB Marketplace is typically local pickup.")
+        print(f"  Market price is based on recent eBay AU sold data.")
+        print(f"  Always verify the listing details before purchasing.\n")
+
+    return 0 if deals else 1
+
+
+# ---------------------------------------------------------------------------
+# monitor subcommand
+# ---------------------------------------------------------------------------
+
+def cmd_monitor(args):
+    """Run the real-time auction monitor with email alerts."""
+    config.DEFAULT_MIN_PRICE = args.min_price
+    config.DEFAULT_MAX_PRICE = args.max_price
+
+    if args.email:
+        config.ALERT_EMAIL_TO = args.email
+
+    try:
+        run_monitor(
+            query=args.query,
+            threshold=args.threshold,
+            sold_pages=args.sold_pages,
+            auction_pages=args.auction_pages,
+            alert_window_minutes=args.alert_window,
+            poll_interval_minutes=args.interval,
+        )
+    except KeyboardInterrupt:
+        print("\n  Monitor stopped.")
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Display
+# ---------------------------------------------------------------------------
 
 def display_deals(deals):
     """Print deals in a formatted table."""
@@ -210,39 +188,127 @@ def display_deals(deals):
     print()
 
 
-def main():
-    args = parse_args()
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
 
-    print("=" * 90)
-    print("  POKEMON CARD PRICE BOT – eBay AU & Facebook Marketplace Deal Finder")
-    print("=" * 90)
+def build_parser():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Pokemon Card Price Bot – find undervalued cards on eBay AU "
+            "and Facebook Marketplace, or monitor auctions in real time."
+        )
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
-    source_desc = {
-        "all": "eBay AU + Facebook Marketplace",
-        "ebay": "eBay AU only",
-        "facebook": "Facebook Marketplace only",
-    }
-    print(f"  Searching: {source_desc[args.source]}")
-
-    deals = run(
-        query=args.query,
-        source=args.source,
-        threshold=args.threshold,
-        min_price=args.min_price,
-        max_price=args.max_price,
-        sold_pages=args.sold_pages,
-        listing_pages=args.listing_pages,
-        fb_locations=args.fb_locations,
+    # --- search ---
+    search_p = subparsers.add_parser(
+        "search",
+        help="One-shot search for undervalued Buy It Now listings.",
+    )
+    search_p.add_argument(
+        "query", nargs="?", default=config.DEFAULT_SEARCH_QUERY,
+        help=f"Search query (default: '{config.DEFAULT_SEARCH_QUERY}')",
+    )
+    search_p.add_argument(
+        "--source", choices=VALID_SOURCES, default="all",
+        help="Which marketplace(s) to search (default: all)",
+    )
+    search_p.add_argument(
+        "--threshold", type=float, default=config.DEAL_THRESHOLD_PERCENT,
+        help=f"Minimum discount %% (default: {config.DEAL_THRESHOLD_PERCENT}%%)",
+    )
+    search_p.add_argument(
+        "--min-price", type=float, default=config.DEFAULT_MIN_PRICE,
+        help=f"Minimum price in AUD (default: {config.DEFAULT_MIN_PRICE})",
+    )
+    search_p.add_argument(
+        "--max-price", type=float, default=config.DEFAULT_MAX_PRICE,
+        help=f"Maximum price in AUD (default: {config.DEFAULT_MAX_PRICE})",
+    )
+    search_p.add_argument(
+        "--sold-pages", type=int, default=2,
+        help="Pages of sold data to fetch (default: 2)",
+    )
+    search_p.add_argument(
+        "--listing-pages", type=int, default=3,
+        help="Pages of active listings to fetch (default: 3)",
+    )
+    search_p.add_argument(
+        "--fb-locations", nargs="+", default=None,
+        help="Facebook Marketplace locations to search",
     )
 
-    display_deals(deals)
+    # --- monitor ---
+    monitor_p = subparsers.add_parser(
+        "monitor",
+        help="Monitor eBay auctions in real time and email alerts for deals.",
+    )
+    monitor_p.add_argument(
+        "query", nargs="?", default=config.DEFAULT_SEARCH_QUERY,
+        help=f"Search query (default: '{config.DEFAULT_SEARCH_QUERY}')",
+    )
+    monitor_p.add_argument(
+        "--threshold", type=float, default=config.DEAL_THRESHOLD_PERCENT,
+        help=f"Minimum discount %% to alert on (default: {config.DEAL_THRESHOLD_PERCENT}%%)",
+    )
+    monitor_p.add_argument(
+        "--min-price", type=float, default=config.DEFAULT_MIN_PRICE,
+        help=f"Minimum price in AUD (default: {config.DEFAULT_MIN_PRICE})",
+    )
+    monitor_p.add_argument(
+        "--max-price", type=float, default=config.DEFAULT_MAX_PRICE,
+        help=f"Maximum price in AUD (default: {config.DEFAULT_MAX_PRICE})",
+    )
+    monitor_p.add_argument(
+        "--sold-pages", type=int, default=2,
+        help="Pages of sold data to fetch (default: 2)",
+    )
+    monitor_p.add_argument(
+        "--auction-pages", type=int, default=3,
+        help="Pages of auctions to scan each cycle (default: 3)",
+    )
+    monitor_p.add_argument(
+        "--alert-window", type=int, default=config.MONITOR_ALERT_WINDOW_MINUTES,
+        help=f"Alert when auction ends within N minutes (default: {config.MONITOR_ALERT_WINDOW_MINUTES})",
+    )
+    monitor_p.add_argument(
+        "--interval", type=int, default=config.MONITOR_POLL_INTERVAL_MINUTES,
+        help=f"Minutes between scans (default: {config.MONITOR_POLL_INTERVAL_MINUTES})",
+    )
+    monitor_p.add_argument(
+        "--email", type=str, default=None,
+        help=f"Override alert email address (default: {config.ALERT_EMAIL_TO})",
+    )
 
-    if deals:
-        print(f"  TIP: eBay prices include shipping. FB Marketplace is typically local pickup.")
-        print(f"  Market price is based on recent eBay AU sold data.")
-        print(f"  Always verify the listing details before purchasing.\n")
+    return parser
 
-    return 0 if deals else 1
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+
+    print("=" * 90)
+    print("  POKEMON CARD PRICE BOT – eBay AU & Facebook Marketplace")
+    print("=" * 90)
+
+    if args.command == "search":
+        source_desc = {
+            "all": "eBay AU + Facebook Marketplace",
+            "ebay": "eBay AU only",
+            "facebook": "Facebook Marketplace only",
+        }
+        print(f"  Mode: Search | Sources: {source_desc[args.source]}")
+        return cmd_search(args)
+
+    elif args.command == "monitor":
+        print(f"  Mode: Auction Monitor | Alerts to: {args.email or config.ALERT_EMAIL_TO}")
+        return cmd_monitor(args)
+
+    else:
+        parser.print_help()
+        print("\n  Use 'search' for one-shot deal finding or 'monitor' for real-time auction alerts.")
+        return 1
 
 
 if __name__ == "__main__":
